@@ -85,21 +85,7 @@ rm -rf ~/.claude/skills/codebase-audit ~/.claude/skills/issue-to-pr \
 
 ## License
 
-This repo is **MIT**-licensed (see [`LICENSE`](./LICENSE)). MIT is the most common choice for permissive, reuse-friendly tooling and matches what tools like Claude Code itself ship under.
-
-If MIT does not fit your use case, common alternatives:
-
-| License | When to pick it |
-|---|---|
-| **MIT** *(default here)* | Maximum permissiveness, minimal obligations. Best for broad reuse. |
-| **Apache-2.0** | Like MIT, but adds an explicit patent grant and a NOTICE mechanism. Pick this if patents or contributor IP are a concern. |
-| **BSD-3-Clause** | Similar to MIT, with a no-endorsement clause. Pick if you want to forbid use of your name to promote derivatives. |
-| **ISC** | Functionally equivalent to MIT, slightly shorter wording. |
-| **0BSD / Unlicense / CC0** | Public-domain-equivalent. Pick if you want zero attribution requirement. Note: CC0 isn't recommended for code by some communities. |
-| **MPL-2.0** | Weak copyleft — file-level. Modifications to MPL files must stay open, but you can mix with proprietary code. |
-| **GPL-3.0 / AGPL-3.0** | Strong copyleft. AGPL closes the SaaS loophole. Pick if you want derivatives forced open. |
-
-To switch, replace `LICENSE` with the new text (templates at [choosealicense.com](https://choosealicense.com/)) and update this section.
+MIT — see [`LICENSE`](./LICENSE).
 
 ## Contributing
 

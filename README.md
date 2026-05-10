@@ -66,19 +66,24 @@ Codex CLI reads skill-style instructions from `~/.codex/skills/` (user) or `./.c
 
 | Skill | User-invocable | Description |
 |---|---|---|
-| [`codebase-audit`](./skills/codebase-audit/) | — | Comprehensive repository audit — architecture, docs freshness, test coverage, dead code, agent-context-file accuracy (CLAUDE.md / AGENTS.md), and dependency health. Dispatches 6 parallel tasks and writes dated reports to `docs/audit/YYYY-MM-DD/`. |
+| [`codebase-audit`](./skills/codebase-audit/) | — | Comprehensive repository audit — architecture, docs freshness, test coverage, dead code, agent-context-file accuracy (CLAUDE.md / AGENTS.md), and dependency health. Dispatches 6 parallel tasks and writes dated reports to `docs/audit/<agent>/YYYY-MM-DD/`. |
+| [`codebase-audit-issues`](./skills/codebase-audit-issues/) | — | Sister to `codebase-audit`. Reads the audit report, files one GitHub issue per actionable finding (label `codebase-audit` + section + severity), then deletes the local report directory. Idempotent via fingerprint comments. |
+| [`codebase-audit-resolve`](./skills/codebase-audit-resolve/) | — | Sister to `codebase-audit-issues`. Walks every open `codebase-audit` issue serially: branch → fix → PR → self-review loop → wait for green CI → squash-merge → next. Critical first, then warning, then info. |
 | [`issue-to-pr`](./skills/issue-to-pr/) | — | End-to-end GitHub workflow that takes an issue from assessment through implementation, testing, PR creation, review, and merge — with automatic branch cleanup. |
 | [`release`](./skills/release/) | yes | Create a new project release: detect version files (`VERSION`, `package.json`, `pyproject.toml`, `Cargo.toml`, `setup.py`), bump, commit, tag, push, and publish a GitHub release with grouped notes. |
 | [`repo-cleanup`](./skills/repo-cleanup/) | — | Systematic check for stale git state and Docker build waste — uncommitted files, stale branches, lingering worktrees, dangling images, build cache. |
 
-All four are platform-neutral and run on both Claude Code and Codex CLI. `codebase-audit` documents how to dispatch parallel tasks on each platform.
+All skills are platform-neutral and run on both Claude Code and Codex CLI. `codebase-audit` documents how to dispatch parallel tasks on each platform.
+
+The audit trio chains: `codebase-audit` → `codebase-audit-issues` → `codebase-audit-resolve`.
 
 ### Migrating from a pre-existing `~/.claude/skills/<name>` install
 
 The installer creates symlinks and refuses to overwrite real directories. If you already have one of these skills installed as a regular folder under `~/.claude/skills/`, remove (or rename) the original first:
 
 ```bash
-rm -rf ~/.claude/skills/codebase-audit ~/.claude/skills/issue-to-pr \
+rm -rf ~/.claude/skills/codebase-audit ~/.claude/skills/codebase-audit-issues \
+       ~/.claude/skills/codebase-audit-resolve ~/.claude/skills/issue-to-pr \
        ~/.claude/skills/release ~/.claude/skills/repo-cleanup
 ./scripts/install.sh
 ```

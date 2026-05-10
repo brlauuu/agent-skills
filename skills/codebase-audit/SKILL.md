@@ -5,7 +5,17 @@ description: Use when performing a comprehensive repository audit — architectu
 
 # Codebase Audit
 
-Comprehensive automated audit of the repository. Dispatches 6 parallel tasks and writes dated reports to `docs/audit/YYYY-MM-DD/`. Reports are stored locally for review — no GitHub issues are created automatically.
+Comprehensive automated audit of the repository. Dispatches 6 parallel tasks and writes dated reports to `docs/audit/<agent>/YYYY-MM-DD/`, where `<agent>` is the name of the agent running the audit (e.g. `claude`, `codex`). Reports are stored locally for review — no GitHub issues are created here. Use the sister skill `codebase-audit-issues` to digest reports into GitHub issues, and `codebase-audit-resolve` to work through the resulting issues.
+
+## Agent identifier
+
+Use a short lowercase identifier for the agent running the audit:
+
+- Claude Code → `claude`
+- Codex CLI → `codex`
+- Other → the platform's own short name
+
+This appears in the report path so multiple agents can audit the same repo without collisions and the reports stay attributable.
 
 ## Platform note (Claude vs Codex)
 
@@ -18,7 +28,7 @@ Wherever this document says "subagent" or "task," substitute the equivalent on y
 
 ## Required Output Files
 
-A successful run MUST produce exactly these 7 files in `docs/audit/YYYY-MM-DD/`. Do not invent other filenames (e.g. `audit.log`), do not consolidate into a single file, do not skip any.
+A successful run MUST produce exactly these 7 files in `docs/audit/<agent>/YYYY-MM-DD/`. Do not invent other filenames (e.g. `audit.log`), do not consolidate into a single file, do not skip any.
 
 1. `summary.md`
 2. `architecture-review.md`
@@ -62,9 +72,9 @@ Pass these facts to each subtask as part of its prompt so the prompts stay langu
 
 ### Step 2: Initialize Report Directory
 
-1. Get today's date: `date +%Y-%m-%d`.
-2. `mkdir -p docs/audit/YYYY-MM-DD`.
-3. Create `docs/audit/YYYY-MM-DD/summary.md`:
+1. Get today's date: `date +%Y-%m-%d`. Set `AGENT` to your platform identifier (`claude`, `codex`, …).
+2. `mkdir -p docs/audit/$AGENT/YYYY-MM-DD`.
+3. Create `docs/audit/<agent>/YYYY-MM-DD/summary.md`:
    ```markdown
    # Codebase Audit — YYYY-MM-DD
 
@@ -90,7 +100,7 @@ Each task gets its prompt from the "Task Prompts" section below, prefixed with t
 
 As each task completes, immediately:
 
-1. Write its results to a dedicated file in the report directory: `docs/audit/YYYY-MM-DD/[section-name].md` (e.g. `architecture-review.md`).
+1. Write its results to a dedicated file in the report directory: `docs/audit/<agent>/YYYY-MM-DD/[section-name].md` (e.g. `architecture-review.md`).
 2. Update the status line in `summary.md`: `> Status: IN PROGRESS (N/6)`.
 
 If a task fails or returns empty results, write to its section file:
@@ -109,7 +119,7 @@ After ALL 6 tasks complete:
    - Any CRITICAL → "Critical"
    - Any WARNING but no CRITICAL → "Needs Attention"
    - Only INFO or no findings → "Good"
-3. Update `docs/audit/YYYY-MM-DD/summary.md`:
+3. Update `docs/audit/<agent>/YYYY-MM-DD/summary.md`:
    ```markdown
    # Codebase Audit — YYYY-MM-DD
 
@@ -134,7 +144,7 @@ After ALL 6 tasks complete:
 Before finalizing, verify every required file exists and is non-empty:
 
 ```bash
-DIR="docs/audit/$(date +%Y-%m-%d)"
+DIR="docs/audit/$AGENT/$(date +%Y-%m-%d)"
 MISSING=()
 for f in summary.md architecture-review.md docs-freshness.md test-coverage.md dead-code.md agent-context-accuracy.md dependency-health.md; do
   if [ ! -s "$DIR/$f" ]; then MISSING+=("$f"); fi
@@ -151,9 +161,9 @@ Do NOT substitute a combined log file for the 7 required files. Do NOT mark the 
 
 ### Step 7: Finalize
 
-1. Do NOT create GitHub issues — reports are for manual review.
+1. Do NOT create GitHub issues here — that's the job of the sister skill `codebase-audit-issues`. Suggest running it next if there are CRITICAL/WARNING findings.
 2. Do NOT commit or push — leave files as unstaged local changes.
-3. Tell the user the report is ready at `docs/audit/YYYY-MM-DD/` and list:
+3. Tell the user the report is ready at `docs/audit/<agent>/YYYY-MM-DD/` and list:
    - Finding counts by severity
    - The 7 files that were written (confirm Step 6 passed)
 

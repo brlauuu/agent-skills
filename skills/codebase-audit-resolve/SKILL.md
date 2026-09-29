@@ -5,7 +5,7 @@ description: Use to work through GitHub issues tagged `codebase-audit` (created 
 
 # Codebase Audit → Resolve
 
-Serially resolve every open issue tagged `codebase-audit`. One issue at a time, end-to-end: branch → fix → PR → self-review loop → green CI → squash-merge → next.
+Serially resolve every open issue tagged `codebase-audit`. One issue at a time, end-to-end: branch → fix → PR → self-review loop → green CI → squash-merge → version bump check → next.
 
 ## Prerequisites
 
@@ -148,13 +148,46 @@ gh pr merge $P --squash --delete-branch
 
 Verify the issue closed automatically (the PR body has `Resolves #N`). If it didn't, close it manually with `gh issue close $N --reason completed`.
 
-### 9. Cleanup and move on
+### 9. Cleanup
 
 ```bash
 git checkout main
 git pull --ff-only
 git branch -D "$BRANCH" 2>/dev/null || true
 ```
+
+### 10. Version bump check
+
+Runs only for an issue that was merged in step 8, never for one that was closed or left open.
+
+**Is a bump due?** Skip to the next issue, and note the reason for the final report, when any of these holds:
+- The project has no version source (`VERSION`, `package.json`, `pyproject.toml`, `Cargo.toml`, ...).
+- The project's own rules (`CLAUDE.md`, `CONTRIBUTING.md`, `RELEASING.md`) say releases are batched, scheduled, or cut by hand.
+- The merged change did not alter what the project ships: CI configuration, tests only, repository housekeeping.
+
+**Classify the bump** over everything merged since the last version tag, not only this issue's change. Earlier merges that were skipped or held, in this run or a previous one, ship in the same release. Judge by what the diff does, not by the issue's severity label or the number of lines changed:
+
+| Bump | When |
+|------|------|
+| **major** | Whoever runs or consumes the project must act: removed or renamed setting, breaking API change, a migration that cannot be undone, a newly mandatory external service |
+| **minor** | New user-visible capability, additive settings with working defaults, additive migrations |
+| **patch** | Fixes, dependency refreshes, docs, internal work |
+
+The highest level among the unreleased changes is the level of the release. If a change sits between two levels, take the higher one.
+
+**Patch or minor: bump without asking.**
+
+**REQUIRED SUB-SKILL:** Use `release` with the chosen level (`/release patch` or `/release minor`). This workflow is the explicit instruction that skill's version-choice step asks for, so do not stop to confirm the level. Every other step of that skill applies unchanged: pre-flight, release PR, green CI, tag.
+
+If the `release` skill is not installed: on a branch, set the new version in the project's single version source, graduate the changelog's `Unreleased` section if there is one, open a PR, merge on green CI, then tag the merged default branch.
+
+If the release cannot complete (pre-flight fails, release CI is red, publishing fails), stop the bump, record what failed for the final report, and move to the next issue. Do not retry by skipping a check.
+
+**Major: do not bump. Pause the queue and ask the author** — the user running this session — stating the current and proposed version, what breaks and for whom, and what the operator or consumer must do. Offer: bump major now, bump minor instead, or hold. Only their answer to this question counts; an earlier general go-ahead ("just get it done", "merge everything") is not approval for a major version. Then run `release` with the level they chose, or record the hold for the final report.
+
+On a `0.x` project a breaking change is still this decision: propose `1.0.0` or `0.(Y+1).0` according to the project's convention, and ask.
+
+If nobody is there to answer (unattended run), do not bump. Comment on the merged PR with the same proposal and the same three options. Keep resolving issues; each later check in the run still classifies as major, because the breaking change is still unreleased, so no version is cut until the author answers. Record those issues as "bump held behind pending major".
 
 Then move to the next issue in the queue.
 
@@ -166,6 +199,9 @@ When the queue is empty (or the user stops the run), summarize:
 - Merged successfully
 - Closed without merging (reason for each)
 - Left open mid-PR (link + reason)
+- Versions cut (old → new, level, tag, which issue triggered each)
+- Bumps not due (reason), bumps held behind a pending major, and bumps that failed (what failed)
+- Major bumps awaiting the author's decision (link to the PR comment), with the merged changes that are on the default branch but not yet released
 
 ## Safety
 
@@ -173,5 +209,7 @@ When the queue is empty (or the user stops the run), summarize:
 - NEVER merge over failing required checks. Don't pass `--admin` or `--no-verify`.
 - NEVER bypass hooks (`--no-verify`, `--no-gpg-sign`).
 - NEVER skip the self-review loop. Even tiny audit fixes get one review pass.
+- NEVER cut a major version without the author's answer. Patch and minor bumps are pre-authorized; major is not.
+- NEVER fold the version bump into the fix PR — the bump is its own change, made after the fix is merged.
 - NEVER batch multiple issues into one PR — the resolver works one-issue-per-PR by design so each fix is independently reviewable and revertible.
 - Stop processing the queue and ask the user if you encounter: merge conflicts you can't auto-resolve, repeated CI failures, or an issue that needs a design decision.

@@ -294,11 +294,64 @@ git remote -v
    - Branch '<branch-name>': Deleted (local + remote)
    ```
 
-5. **Proceed to Docker phase** if applicable (see Phase 9).
+5. **Proceed to the version bump check** (Phase 9).
 
 ---
 
-### Phase 9: Docker Rebuild & Restart (Conditional)
+### Phase 9: Version Bump Check
+
+**Goal:** Decide whether the merged change calls for a new version, and cut it when it does.
+
+1. **Is a bump due?** Skip this phase, and say why in the final summary, when any of these holds:
+   - The project has no version source (`VERSION`, `package.json`, `pyproject.toml`, `Cargo.toml`, ...).
+   - The project's own rules (`CLAUDE.md`, `CONTRIBUTING.md`, `RELEASING.md`) say releases are batched, scheduled, or cut by hand.
+   - The merged change did not alter what the project ships: CI configuration, tests only, repository housekeeping.
+
+2. **Classify the bump** over everything merged since the last version tag, not only this issue's change. Earlier merges that were skipped or held ship in the same release. Judge by what the diff does, not by the issue's labels or the number of lines changed:
+
+   | Bump | When |
+   |------|------|
+   | **major** | Whoever runs or consumes the project must act: removed or renamed setting, breaking API change, a migration that cannot be undone, a newly mandatory external service |
+   | **minor** | New user-visible capability, additive settings with working defaults, additive migrations |
+   | **patch** | Fixes, dependency refreshes, docs, internal work |
+
+   The highest level among the unreleased changes is the level of the release. If a change sits between two levels, take the higher one.
+
+3. **Patch or minor: bump without asking.**
+
+   **REQUIRED SUB-SKILL:** Use `release` with the chosen level (`/release patch` or `/release minor`). This workflow is the explicit instruction that skill's version-choice step asks for, so do not stop to confirm the level. Every other step of that skill applies unchanged: pre-flight, release PR, green CI, tag.
+
+   If the `release` skill is not installed: on a branch, set the new version in the project's single version source, graduate the changelog's `Unreleased` section if there is one, open a PR, merge on green CI, then tag the merged default branch.
+
+   If the release cannot complete (pre-flight fails, release CI is red, publishing fails), stop the bump, report what failed, and continue to Phase 10. Do not retry by skipping a check.
+
+4. **Major: do not bump. Ask the author** — the user running this session. Only their answer to this question counts. An earlier general go-ahead ("just get it done", "merge everything") is not approval for a major version.
+
+   On a `0.x` project a breaking change is still this decision: propose `1.0.0` or `0.(Y+1).0` according to the project's convention, and ask.
+   ```
+   ## Major Version Bump Proposed
+
+   Current version: X.Y.Z → proposed: (X+1).0.0
+
+   ### Why this is major
+   - [What breaks, and for whom]
+
+   ### What the operator or consumer must do
+   - [Required action]
+
+   ### Options
+   1. **Bump major now**
+   2. **Bump minor instead** — the change is not breaking in practice
+   3. **Hold** — no bump now; it goes out with a later release
+   ```
+
+   **Decision point:** Wait for the author's choice. Then run `release` with the level they chose, or record the hold in the final summary.
+
+5. **Proceed to Docker phase** if applicable (Phase 10).
+
+---
+
+### Phase 10: Docker Rebuild & Restart (Conditional)
 
 **Goal:** Rebuild affected Docker images and restart containers if needed.
 
@@ -462,7 +515,7 @@ This phase runs only if:
 
 ---
 
-### Phase 10: Final Confirmation
+### Phase 11: Final Confirmation
 
 **Goal:** Summarize everything that was done.
 
@@ -473,6 +526,9 @@ This phase runs only if:
 - Issue #<number>: Closed
 - PR #<pr-number>: Merged (squash)
 - Branch '<branch-name>': Deleted (local + remote)
+
+### Version
+- [X.Y.Z → X.Y.Z (patch/minor/major), tag vX.Y.Z / No bump: <reason> / Major bump held by author / Major bump awaiting author's decision / Bump failed: <what failed>]
 
 ### Docker (if applicable)
 - Image '<image-name>': Rebuilt
@@ -495,7 +551,7 @@ To enable automatic rebuild after merge, first build the image:
   # or
   docker build -t <image-name> .
 ```
-Skip Phase 9 and continue to final confirmation.
+Skip Phase 10 and continue to final confirmation.
 
 ### Multiple Docker Services Affected
 If changes affect multiple services:
@@ -557,8 +613,9 @@ If resuming work on an existing branch:
 | 6. PR | `gh pr create` | — |
 | 7. Review | `gh pr diff` | Approve merge |
 | 8. Merge | `gh pr merge --squash --delete-branch` | — |
-| 9. Docker | `docker-compose build && up -d` | Confirm restart (workers only) |
-| 10. Done | Summary | — |
+| 9. Version | `/release <level>`, or skip if no bump is due | Confirm bump (major only) |
+| 10. Docker | `docker-compose build && up -d` | Confirm restart (workers only) |
+| 11. Done | Summary | — |
 
 ---
 
@@ -575,6 +632,9 @@ If resuming work on an existing branch:
 
 **Skip to merge:**
 > "The PR looks good, merge it and clean up"
+
+**Skip the version bump:**
+> "Merge the PR but don't cut a version, I'll release at the end of the week"
 
 **Skip Docker restart:**
 > "Merge the PR but don't restart the containers, I'll do it during maintenance window"

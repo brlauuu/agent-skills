@@ -319,7 +319,7 @@ git remote -v
 
 3. **Patch or minor: bump without asking.**
 
-   **REQUIRED SUB-SKILL:** Use `release` with the chosen level (`/release patch` or `/release minor`). This workflow is the explicit instruction that skill's version-choice step asks for, so do not stop to confirm the level. Every other step of that skill applies unchanged: pre-flight, release PR, green CI, tag.
+   **REQUIRED SUB-SKILL:** Use `release` with the chosen level (`/release patch` or `/release minor`). That skill cuts patch and minor releases without asking, so do not stop to confirm the level. Every step of it applies: pre-flight, release PR, green CI, tag.
 
    If the `release` skill is not installed: on a branch, set the new version in the project's single version source, graduate the changelog's `Unreleased` section if there is one, open a PR, merge on green CI, then tag the merged default branch.
 

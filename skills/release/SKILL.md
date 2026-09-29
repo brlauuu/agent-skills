@@ -15,7 +15,7 @@ A release is a reviewed change like any other, plus a tag. The version lives in 
 ## Usage
 
 ```
-/release            # audit, then ask for the bump
+/release            # audit, classify; cut patch or minor, ask before major
 /release minor      # patch | minor | major
 /release 1.2.0      # exact version
 ```
@@ -34,17 +34,33 @@ Find the single source of truth and the mechanism around it. Do not assume the g
 
 Report what you found in one short list before touching anything.
 
-## Step 2: Choose the version, with the user
+## Step 2: Choose the version
 
-State the current version and recommend a bump with the reason. **Ask; never bump on your own, and never bump major without an explicit instruction.**
+Classify everything merged since the last version tag, not only the latest change. Read the diff and the Unreleased entries; where they disagree, the diff decides. The highest level among the unreleased changes is the level of the release. If a change sits between two levels, take the higher one.
 
 | Bump | When |
 |---|---|
-| **major** | The operator must act: removed or renamed setting, a migration that cannot be undone by restoring the previous backup, a newly mandatory external service, a breaking API change for a downstream consumer |
+| **major** | Whoever runs or consumes the project must act: removed or renamed setting, flag or command, a migration that cannot be undone by restoring the previous backup, a newly mandatory external service, a breaking API change for a downstream consumer |
 | **minor** | New user-visible capability, additive settings with working defaults, additive migrations |
 | **patch** | Fixes, dependency refreshes, docs, internal work only |
 
-Read the Unreleased entries to decide; the grouping headings usually say it already.
+State the current version, the new version, the level and the reason. Then:
+
+| Classified level | Level was given (`/release minor`, a calling workflow) | What to do |
+|---|---|---|
+| patch or minor | none, or the same | Proceed with the classified level, without asking |
+| patch or minor | higher (`minor` given, change is patch) | Proceed with the given level, without asking |
+| patch or minor | lower (`patch` given, change is minor) | Proceed with the classified level and say why |
+| **major** | anything other than `major` or an exact major version from the user | **Do not bump. Ask the user.** |
+| **major** | `major` or an exact major version, from the user | Proceed |
+
+A level counts as "from the user" when the user typed it, or when a calling workflow relays the user's answer to the major-bump question below. A level a workflow chose by its own classification does not.
+
+**Asking about a major bump:** say what breaks and for whom, what the operator or consumer must do, and offer three options: bump major now, bump minor instead, or hold. Only the user's answer to this question counts. An earlier general go-ahead ("just get it done", "release everything") is not approval for a major version. Whatever the user answers is then the level of the release.
+
+If nobody is there to answer, cut no release at all, at any level. Leave the proposal where the user will find it: a comment on the PR that merged the breaking change, and the final report.
+
+On a `0.x` project a breaking change is still this decision: ask, and propose what the project's convention says. If it has none, propose `0.(Y+1).0` and name `1.0.0` as the alternative.
 
 ## Step 3: Pre-flight
 
@@ -89,6 +105,8 @@ If a workflow publishes from the tag, watch it finish and open the release page 
 - Generating notes from `git log` when a changelog section exists
 - Running `gh release create` when a tag workflow exists
 - Bumping major because "a lot changed"; major is about what the operator must do, not volume
+- Cutting a major version on a general go-ahead, or because a level was passed in by a workflow rather than chosen by the user
+- Cutting a patch or minor while a breaking change is merged and unreleased, when the user has not chosen that in answer to the major-bump question
 - "The lockfile should match the version" — only if the project says so
 
 | Rationalization | Reality |

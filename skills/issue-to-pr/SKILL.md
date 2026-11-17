@@ -103,7 +103,11 @@ This is not optional. Every run of this workflow creates its own worktree, even 
    ```
 
 2. **Create the worktree on a new branch**
-   Use a descriptive branch name tied to the issue, and put the worktree in a sibling directory outside the repository so it cannot be picked up by the repo's own tooling:
+   Use a descriptive branch name tied to the issue.
+
+   If the harness provides a native worktree tool (for example Claude Code's `EnterWorktree`), prefer it: it puts the worktree where the harness can write without extra permissions. The result must still be a new worktree on a new branch based on the up-to-date default branch.
+
+   Otherwise use git directly, putting the worktree in a sibling directory outside the repository so the repo's own tooling cannot pick it up. If that location is not writable (for example under a sandbox), use `<repo>/.worktrees/` instead, but only after confirming it is gitignored:
    ```bash
    REPO_ROOT=$(git rev-parse --show-toplevel)
    BRANCH=<issue-number>-<short-description>      # e.g. 42-add-user-auth
@@ -112,7 +116,8 @@ This is not optional. Every run of this workflow creates its own worktree, even 
    git worktree add -b "$BRANCH" "$WORKTREE" "origin/$DEFAULT_BRANCH"
    cd "$WORKTREE"
    ```
-   If the harness provides a native worktree tool (for example Claude Code's `EnterWorktree`), it may be used instead, as long as the result is a new worktree on a new branch based on the up-to-date default branch.
+
+   **Record the four values** (`DEFAULT_BRANCH`, `REPO_ROOT`, `BRANCH`, `WORKTREE`) as literal paths and names in your notes or plan. Shell variables usually do not survive between an agent's commands, and Phase 8 needs all four. Where later snippets use `$VAR`, substitute the recorded value.
 
 3. **Prepare the worktree**
    A new worktree has no untracked files: install dependencies and copy any local-only config the tests need (`.env`, etc.) before Phase 5. Never symlink or copy build output from the main checkout.
@@ -281,7 +286,10 @@ This is not optional. Every run of this workflow creates its own worktree, even 
    gh pr merge <pr-number> --squash --delete-branch
    ```
    
-   The `--delete-branch` flag deletes the remote branch automatically. If `gh` complains that it cannot delete the local branch because it is checked out in the worktree, that is expected; step 2 handles it.
+   The `--delete-branch` flag deletes the remote branch automatically. If `gh` complains that it cannot delete the local branch, or cannot switch to the default branch, because of the worktree, that is expected; step 2 handles it. Such an error can make `gh` exit non-zero even though the merge succeeded, so check the real state before going on:
+   ```bash
+   gh pr view <pr-number> --json state -q .state   # must print MERGED
+   ```
 
 2. **Remove the worktree and local branch**
    ```bash
@@ -328,7 +336,9 @@ This is not optional. Every run of this workflow creates its own worktree, even 
    - Worktree '<worktree-path>': Removed
    ```
 
-   Phases 9 and 10 run from the main checkout (`$REPO_ROOT`), not from the removed worktree.
+   Phases 9 and 10 need the merged code, not the removed worktree:
+   - **Main checkout was fast-forwarded in step 3:** run both phases from `$REPO_ROOT`.
+   - **Main checkout was left alone:** run Phase 9 in a new temporary worktree of `origin/$DEFAULT_BRANCH`, and remove it afterwards. Skip Phase 10 and report that the Docker rebuild needs the main checkout updated first. Building from another directory would change the Compose project name and target different containers, and building from the stale checkout would ship old code.
 
 6. **Proceed to the version bump check** (Phase 9).
 

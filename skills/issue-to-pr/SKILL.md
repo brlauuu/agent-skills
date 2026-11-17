@@ -5,7 +5,7 @@ description: End-to-end GitHub workflow that takes an issue through implementati
 
 # Issue to PR Workflow
 
-A complete workflow for taking a GitHub issue from assessment through implementation, testing, PR creation, review, and merge — with automatic branch cleanup.
+A complete workflow for taking a GitHub issue from assessment through implementation, testing, PR creation, review, and merge — always in a fresh git worktree, with automatic worktree and branch cleanup.
 
 ## Prerequisites
 
@@ -90,23 +90,48 @@ git remote -v
 
 ---
 
-### Phase 3: Branch Setup
+### Phase 3: Worktree Setup
 
-**Goal:** Create a clean branch for the work.
+**Goal:** Do all the work in a new git worktree on a fresh branch, never in the user's current checkout.
 
-1. **Ensure main branch is up to date**
+This is not optional. Every run of this workflow creates its own worktree, even when the current checkout is clean and on `main`. The user's main checkout is never switched, stashed, reset, or committed to. Phases 1 and 2 only read; nothing is written to disk before this phase.
+
+1. **Fetch the latest default branch** (without touching the current checkout)
    ```bash
    git fetch origin
-   git checkout main
-   git pull origin main
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
    ```
 
-2. **Create feature branch**
-   Use a descriptive branch name tied to the issue:
+2. **Create the worktree on a new branch**
+   Use a descriptive branch name tied to the issue.
+
+   If the harness provides a native worktree tool (for example Claude Code's `EnterWorktree`), prefer it: it puts the worktree where the harness can write without extra permissions. The result must still be a new worktree on a new branch based on the up-to-date default branch.
+
+   Otherwise use git directly, putting the worktree in a sibling directory outside the repository so the repo's own tooling cannot pick it up. If that location is not writable (for example under a sandbox), use `<repo>/.worktrees/` instead, but only after confirming it is gitignored:
    ```bash
-   git checkout -b <issue-number>-<short-description>
-   # Example: git checkout -b 42-add-user-auth
+   REPO_ROOT=$(git rev-parse --show-toplevel)
+   BRANCH=<issue-number>-<short-description>      # e.g. 42-add-user-auth
+   WORKTREE="$(dirname "$REPO_ROOT")/$(basename "$REPO_ROOT")-worktrees/$BRANCH"
+
+   git worktree add -b "$BRANCH" "$WORKTREE" "origin/$DEFAULT_BRANCH"
+   cd "$WORKTREE"
    ```
+
+   **Record the four values** (`DEFAULT_BRANCH`, `REPO_ROOT`, `BRANCH`, `WORKTREE`) as literal paths and names in your notes or plan. Shell variables usually do not survive between an agent's commands, and Phase 8 needs all four. Where later snippets use `$VAR`, substitute the recorded value.
+
+3. **Prepare the worktree**
+   A new worktree has no untracked files: install dependencies and copy any local-only config the tests need (`.env`, etc.) before Phase 5. Never symlink or copy build output from the main checkout.
+
+4. **Work only inside the worktree**
+   Every command in Phases 4–7 runs from `$WORKTREE`. If your shell does not keep its working directory between commands, use absolute paths or prefix commands with `cd "$WORKTREE" &&`. Before each commit, confirm you are in the right place:
+   ```bash
+   git rev-parse --show-toplevel   # must print $WORKTREE
+   git branch --show-current       # must print $BRANCH
+   ```
+
+5. **If the branch or worktree already exists**
+   - `git worktree list` shows a worktree for this issue: this is a resumed run, see "Continuing an Interrupted Workflow".
+   - The branch exists without a worktree: ask the user whether to resume it (`git worktree add "$WORKTREE" "$BRANCH"`) or start over under a new branch name. Do not delete it on your own.
 
 ---
 
@@ -253,7 +278,7 @@ git remote -v
 
 ### Phase 8: Merge and Cleanup
 
-**Goal:** Merge the PR and clean up branches.
+**Goal:** Merge the PR and clean up the worktree and branches.
 
 1. **Merge the PR**
    ```bash
@@ -261,21 +286,34 @@ git remote -v
    gh pr merge <pr-number> --squash --delete-branch
    ```
    
-   The `--delete-branch` flag deletes the remote branch automatically.
-
-2. **Clean up local branch**
+   The `--delete-branch` flag deletes the remote branch automatically. If `gh` complains that it cannot delete the local branch, or cannot switch to the default branch, because of the worktree, that is expected; step 2 handles it. Such an error can make `gh` exit non-zero even though the merge succeeded, so check the real state before going on:
    ```bash
-   # Switch back to main
-   git checkout main
-   
-   # Pull the merged changes
-   git pull origin main
-   
-   # Delete the local feature branch
-   git branch -d <branch-name>
+   gh pr view <pr-number> --json state -q .state   # must print MERGED
    ```
 
-3. **Verify cleanup**
+2. **Remove the worktree and local branch**
+   ```bash
+   # Leave the worktree before removing it
+   cd "$REPO_ROOT"
+
+   # Remove the worktree (refuses if it has uncommitted changes — stop and ask the user if so)
+   git worktree remove "$WORKTREE"
+   git worktree prune
+
+   # Delete the local feature branch (squash merges need -D; the PR is confirmed merged at this point)
+   git branch -D "$BRANCH"
+   ```
+   Do not use `git worktree remove --force` without asking: uncommitted changes in the worktree mean something was left out of the PR.
+
+3. **Update the main checkout, only if that is safe**
+   Fast-forward the user's main checkout only if it is on the default branch and clean; otherwise leave it alone and say so in the summary:
+   ```bash
+   if [ "$(git -C "$REPO_ROOT" branch --show-current)" = "$DEFAULT_BRANCH" ] && [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
+     git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH"
+   fi
+   ```
+
+4. **Verify cleanup**
    ```bash
    # Confirm remote branch is gone
    git fetch --prune
@@ -283,18 +321,26 @@ git remote -v
    
    # Confirm local branch is gone
    git branch | grep <branch-name>  # Should return nothing
+
+   # Confirm the worktree is gone
+   git worktree list | grep <branch-name>  # Should return nothing
    ```
 
-4. **Confirm merge completion**
+5. **Confirm merge completion**
    ```
    ## Merge Complete ✓
    
    - Issue #<number>: Closed
    - PR #<pr-number>: Merged
    - Branch '<branch-name>': Deleted (local + remote)
+   - Worktree '<worktree-path>': Removed
    ```
 
-5. **Proceed to the version bump check** (Phase 9).
+   Phases 9 and 10 need the merged code, not the removed worktree:
+   - **Main checkout was fast-forwarded in step 3:** run both phases from `$REPO_ROOT`.
+   - **Main checkout was left alone:** run Phase 9 in a new temporary worktree of `origin/$DEFAULT_BRANCH`, and remove it afterwards. Skip Phase 10 and report that the Docker rebuild needs the main checkout updated first. Building from another directory would change the Compose project name and target different containers, and building from the stale checkout would ship old code.
+
+6. **Proceed to the version bump check** (Phase 9).
 
 ---
 
@@ -526,6 +572,8 @@ This phase runs only if:
 - Issue #<number>: Closed
 - PR #<pr-number>: Merged (squash)
 - Branch '<branch-name>': Deleted (local + remote)
+- Worktree '<worktree-path>': Removed
+- Main checkout: [Fast-forwarded / Left alone: <reason>]
 
 ### Version
 - [X.Y.Z → X.Y.Z (patch/minor/major), tag vX.Y.Z / No bump: <reason> / Major bump held by author / Major bump awaiting author's decision / Bump failed: <what failed>]
@@ -587,17 +635,20 @@ If CI checks fail:
 ### User Wants to Abort
 At any phase, if the user wants to stop:
 ```bash
-# If branch was created but not merged
-git checkout main
+# If the worktree was created but the PR not merged
+cd "$REPO_ROOT"
+git worktree remove "$WORKTREE"   # ask before adding --force if it has uncommitted changes
 git branch -D <branch-name>  # Force delete local
 git push origin --delete <branch-name>  # Delete remote if pushed
 ```
+Ask before deleting anything that has commits or changes the user may want to keep. The user's main checkout is never touched.
 
 ### Continuing an Interrupted Workflow
-If resuming work on an existing branch:
-1. Check current state: `git status`, `git log --oneline -5`
-2. Determine which phase to resume from
-3. Continue from that phase
+If resuming work on an existing issue:
+1. Find the worktree: `git worktree list` (look for the issue's branch)
+2. `cd` into it and check current state: `git status`, `git log --oneline -5`
+3. If the branch exists but has no worktree, recreate one: `git worktree add "$WORKTREE" <branch-name>`
+4. Determine which phase to resume from, and continue from that phase inside the worktree
 
 ---
 
@@ -607,12 +658,12 @@ If resuming work on an existing branch:
 |-------|------------|----------------|
 | 1. Assess | `gh issue view <n>` | Confirm understanding |
 | 2. Plan | Explore + draft plan | Approve plan |
-| 3. Branch | `git checkout -b` | — |
+| 3. Worktree | `git worktree add -b <branch> <path> origin/<default>` | — |
 | 4. Implement | Code + commit | — |
 | 5. Test | Run test suite | Fix failures |
 | 6. PR | `gh pr create` | — |
 | 7. Review | `gh pr diff` | Approve merge |
-| 8. Merge | `gh pr merge --squash --delete-branch` | — |
+| 8. Merge | `gh pr merge --squash --delete-branch`, `git worktree remove` | — |
 | 9. Version | `/release <level>`, or skip if no bump is due | Confirm bump (major only) |
 | 10. Docker | `docker-compose build && up -d` | Confirm restart (workers only) |
 | 11. Done | Summary | — |
